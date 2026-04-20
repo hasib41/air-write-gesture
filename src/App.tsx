@@ -16,13 +16,12 @@ import {
   erasePartial,
   type Stroke,
 } from './strokes';
+import { OneEuro2D } from './utils/oneEuro';
 import FingerCursor from './components/FingerCursor';
 import Toolbar, { PALETTE, STROKE_SIZES, type StrokeSize } from './components/Toolbar';
 import { recognizeInk, type OcrStatus } from './utils/ocr';
 import './App.css';
 
-// Landmark smoothing (low-pass). Higher = follows finger more closely.
-const SMOOTHING = 0.55;
 // Ignore points closer than this to the previous one — keeps stroke
 // point count down without visibly missing motion.
 const MIN_SEGMENT_PX = 1.5;
@@ -61,7 +60,9 @@ export default function App() {
 
   const penDownRef = useRef(false);
   const eraseDownRef = useRef(false);
-  const smoothedRef = useRef<{ x: number; y: number } | null>(null);
+  // One-Euro: minCutoff trades off smoothness (lower = smoother, more lag);
+  // beta trades off responsiveness at speed (higher = less lag when moving fast).
+  const inputFilterRef = useRef(new OneEuro2D(1.2, 0.02, 1.0));
   const paletteIndexPinchedRef = useRef(false);
   const paletteMiddlePinchedRef = useRef(false);
 
@@ -88,6 +89,19 @@ export default function App() {
 
   const [recognizedText, setRecognizedText] = useState('');
   const [ocrStatus, setOcrStatus] = useState<OcrStatus>('idle');
+  const [gestureProgress, setGestureProgress] = useState<{
+    kind: 'undo' | 'save';
+    value: number;
+  } | null>(null);
+  const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
+
+  const showToast = useCallback((text: string) => {
+    const id = Date.now() + Math.random();
+    setToast({ id, text });
+    window.setTimeout(() => {
+      setToast((cur) => (cur?.id === id ? null : cur));
+    }, 1400);
+  }, []);
 
   const undoLatchRef = useRef(new GestureLatch('fist', GESTURE_HOLD_FRAMES));
   const saveLatchRef = useRef(new GestureLatch('thumbs_up', GESTURE_HOLD_FRAMES));
@@ -143,7 +157,8 @@ export default function App() {
     redrawCommitted();
     paintInk();
     setHistoryTick((t) => t + 1);
-  }, [redrawCommitted, paintInk]);
+    showToast('Undo');
+  }, [redrawCommitted, paintInk, showToast]);
 
   const handleRedo = useCallback(() => {
     const action = redoStackRef.current.pop();
@@ -161,7 +176,8 @@ export default function App() {
     redrawCommitted();
     paintInk();
     setHistoryTick((t) => t + 1);
-  }, [redrawCommitted, paintInk]);
+    showToast('Redo');
+  }, [redrawCommitted, paintInk, showToast]);
 
   const handleClear = useCallback(() => {
     if (strokesRef.current.length === 0 && !currentStrokeRef.current) return;
@@ -174,7 +190,8 @@ export default function App() {
     redrawCommitted();
     paintInk();
     setHistoryTick((t) => t + 1);
-  }, [redrawCommitted, paintInk]);
+    showToast('Cleared');
+  }, [redrawCommitted, paintInk, showToast]);
 
   const handleSave = useCallback(() => {
     const c = inkCanvasRef.current;
@@ -183,14 +200,16 @@ export default function App() {
     a.download = `air-writer-${Date.now()}.png`;
     a.href = c.toDataURL('image/png');
     a.click();
-  }, []);
+    showToast('Saved PNG');
+  }, [showToast]);
 
   const handleRecognize = useCallback(async () => {
     const c = inkCanvasRef.current;
     if (!c || c.width === 0) return;
     const text = await recognizeInk(c, setOcrStatus);
     setRecognizedText(text || '(nothing recognized)');
-  }, []);
+    showToast(text ? 'Recognized' : 'Nothing to recognize');
+  }, [showToast]);
 
   // Save handler via ref so keyboard listener stays stable without
   // re-binding on every render.
@@ -288,13 +307,16 @@ export default function App() {
 
       // --- Drawing hand ---
       if (drawIdx === -1) {
-        smoothedRef.current = null;
+        inputFilterRef.current.reset();
         penDownRef.current = false;
         eraseDownRef.current = false;
+        undoLatchRef.current.tick('none');
+        saveLatchRef.current.tick('none');
         setDrawCursor(null);
         setPenDown(false);
         setErasing(false);
         setEraserRing(null);
+        setGestureProgress((cur) => (cur ? null : cur));
       } else {
         const sum = summarize(hands[drawIdx]);
         if (sum) {
@@ -320,7 +342,7 @@ export default function App() {
             else if (middleTight && middleDominant) eraseDown = true;
           }
 
-          // Reset smoothing when the active fingertip switches so the
+          // Reset the filter when the active fingertip switches so the
           // cursor snaps to the new landmark instead of sliding through
           // the air between them.
           const activeKind: 'idle' | 'draw' | 'erase' = drawDown
@@ -333,7 +355,7 @@ export default function App() {
             : prevErase
               ? 'erase'
               : 'idle';
-          if (activeKind !== prevKind) smoothedRef.current = null;
+          if (activeKind !== prevKind) inputFilterRef.current.reset();
 
           const tipLm =
             activeKind === 'erase'
@@ -342,10 +364,7 @@ export default function App() {
 
           const rawX = tipLm.x * inkCanvas.width;
           const rawY = tipLm.y * inkCanvas.height;
-          const prev = smoothedRef.current;
-          const sx = prev ? prev.x + SMOOTHING * (rawX - prev.x) : rawX;
-          const sy = prev ? prev.y + SMOOTHING * (rawY - prev.y) : rawY;
-          smoothedRef.current = { x: sx, y: sy };
+          const { x: sx, y: sy } = inputFilterRef.current.filter(rawX, rawY, timestamp);
 
           // --- Stroke lifecycle ---
           if (drawDown) {
@@ -401,14 +420,35 @@ export default function App() {
           setErasing(eraseDown);
 
           // --- One-shot pose gestures (only when not actively drawing) ---
+          let fired: 'undo' | 'save' | null = null;
           if (!drawDown && !eraseDown) {
             const pose = classifyPose(sum);
-            if (undoLatchRef.current.tick(pose)) handleUndo();
-            if (saveLatchRef.current.tick(pose)) saveRef.current();
+            if (undoLatchRef.current.tick(pose)) {
+              handleUndo();
+              fired = 'undo';
+            }
+            if (saveLatchRef.current.tick(pose)) {
+              saveRef.current();
+              fired = 'save';
+            }
           } else {
-            // Reset latches so a fist→pinch→fist sequence re-arms them.
             undoLatchRef.current.tick('none');
             saveLatchRef.current.tick('none');
+          }
+
+          // Feed the progress ring. Firing snaps the ring to full for a
+          // frame; otherwise show whichever hold is further along.
+          const undoP = undoLatchRef.current.progress();
+          const saveP = saveLatchRef.current.progress();
+          if (fired) {
+            setGestureProgress({ kind: fired, value: 1 });
+            showToast(fired === 'undo' ? 'Undo' : 'Saved');
+          } else if (undoP > 0.08 || saveP > 0.08) {
+            setGestureProgress(
+              undoP >= saveP ? { kind: 'undo', value: undoP } : { kind: 'save', value: saveP },
+            );
+          } else {
+            setGestureProgress((cur) => (cur ? null : cur));
           }
 
           // --- Viewport cursor (mirror x because view is flipped) ---
@@ -555,6 +595,38 @@ export default function App() {
             marginTop: -eraserRing.d / 2,
           }}
         />
+      )}
+      {gestureProgress && drawCursor && (
+        <svg
+          className="gesture-ring"
+          width={56}
+          height={56}
+          viewBox="0 0 56 56"
+          style={{
+            transform: `translate(${drawCursor.x - 28}px, ${drawCursor.y - 28}px)`,
+          }}
+          aria-hidden
+        >
+          <circle cx="28" cy="28" r="24" className="gesture-ring__base" />
+          <circle
+            cx="28"
+            cy="28"
+            r="24"
+            className="gesture-ring__fill"
+            style={{
+              strokeDasharray: 2 * Math.PI * 24,
+              strokeDashoffset: 2 * Math.PI * 24 * (1 - gestureProgress.value),
+            }}
+          />
+          <text x="28" y="33" className="gesture-ring__label">
+            {gestureProgress.kind === 'undo' ? '\u21B6' : '\u2713'}
+          </text>
+        </svg>
+      )}
+      {toast && (
+        <div key={toast.id} className="toast" role="status" aria-live="polite">
+          {toast.text}
+        </div>
       )}
 
       <Toolbar

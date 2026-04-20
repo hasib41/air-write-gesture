@@ -201,6 +201,14 @@ export class GestureLatch {
     }
     return false;
   }
+
+  // 0..1 — how close the current hold is to firing. 0 while not holding
+  // the target pose, 1 at the moment it fires. Used to draw a feedback
+  // ring while the user charges up a gesture.
+  progress(): number {
+    if (!this.armed) return 0;
+    return Math.min(1, this.matchCount / this.holdFrames);
+  }
 }
 
 // 2D distance helper exported for callers (e.g. fingertip distance in canvas coords).
