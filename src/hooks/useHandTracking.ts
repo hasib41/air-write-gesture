@@ -31,7 +31,7 @@ type Options = {
   onFrame?: OnFrame;
 };
 
-export function useHandTracking({ videoRef, canvasRef, numHands = 1, onFrame }: Options) {
+export function useHandTracking({ videoRef, canvasRef, numHands = 2, onFrame }: Options) {
   const [status, setStatus] = useState<HandTrackingStatus>('idle');
   const onFrameRef = useRef<OnFrame | undefined>(onFrame);
   onFrameRef.current = onFrame;

@@ -270,17 +270,34 @@
   transition:
     background 140ms var(--ease),
     border-color 140ms var(--ease),
-    transform 140ms var(--ease);
+    transform 140ms var(--ease),
+    opacity 140ms var(--ease);
 }
 
-.btn-ghost:hover {
+.btn-ghost:hover:not(:disabled) {
   background: var(--bg-elev-3);
   border-color: var(--border-strong);
   transform: translateY(-1px);
 }
 
-.btn-ghost:active {
+.btn-ghost:active:not(:disabled) {
   transform: translateY(0);
+}
+
+.btn-ghost:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-accent {
+  border-color: rgba(34, 211, 238, 0.45);
+  background: rgba(34, 211, 238, 0.12);
+  color: #a5f3fc;
+}
+
+.btn-accent:hover:not(:disabled) {
+  background: rgba(34, 211, 238, 0.22);
+  border-color: rgba(34, 211, 238, 0.75);
 }
 
 .btn-danger {
@@ -289,9 +306,105 @@
   background: rgba(251, 113, 133, 0.08);
 }
 
-.btn-danger:hover {
+.btn-danger:hover:not(:disabled) {
   background: rgba(251, 113, 133, 0.18);
   border-color: rgba(251, 113, 133, 0.75);
+}
+
+/* ---------- Eraser ring ---------- */
+.eraser-ring {
+  position: fixed;
+  top: 0;
+  left: 0;
+  border-radius: 50%;
+  border: 2px dashed rgba(251, 113, 133, 0.75);
+  background: rgba(251, 113, 133, 0.08);
+  pointer-events: none;
+  z-index: 49;
+  will-change: transform;
+  box-shadow:
+    0 0 18px rgba(251, 113, 133, 0.35),
+    inset 0 0 12px rgba(251, 113, 133, 0.15);
+}
+
+/* ---------- Mode badge (erase) ---------- */
+.mode-badge {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  z-index: 4;
+  pointer-events: none;
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+}
+
+.mode-badge--erase {
+  background: rgba(251, 113, 133, 0.18);
+  border: 1px solid rgba(251, 113, 133, 0.55);
+  color: #fecdd3;
+  box-shadow: 0 0 18px rgba(251, 113, 133, 0.35);
+}
+
+/* ---------- Recognized text panel ---------- */
+.toolbar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recognized {
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.08), rgba(34, 211, 238, 0.02));
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+  box-shadow: var(--shadow-md);
+}
+
+.recognized-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.recognized-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.recognized-dismiss {
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: background 120ms var(--ease), color 120ms var(--ease);
+}
+
+.recognized-dismiss:hover {
+  background: var(--bg-elev-2);
+  color: var(--text-primary);
+}
+
+.recognized-text {
+  margin: 0;
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ---------- Responsive ---------- */
