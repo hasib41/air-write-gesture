@@ -54,6 +54,19 @@ export function useHandTracking({ videoRef, canvasRef, numHands = 1, onFrame }: 
         if (cancelled) return;
 
         setStatus('requesting camera');
+        // getUserMedia is only exposed in secure contexts (HTTPS or localhost).
+        // Surface a clear, actionable message instead of the cryptic
+        // "Cannot read properties of undefined" TypeError.
+        if (!navigator.mediaDevices?.getUserMedia) {
+          const host = window.location.hostname;
+          const insecureLan =
+            !window.isSecureContext && host !== 'localhost' && host !== '127.0.0.1';
+          throw new Error(
+            insecureLan
+              ? `camera needs HTTPS on ${host}. Open http://localhost:${window.location.port} instead, or run the HTTPS dev server.`
+              : 'camera API unavailable in this browser',
+          );
+        }
         stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 1280, height: 720, facingMode: 'user' },
           audio: false,
