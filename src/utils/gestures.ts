@@ -129,6 +129,53 @@ export function fingertipOf(landmarks: HandLandmarks | undefined, idx = INDEX_TI
 export const MIDDLE_FINGERTIP = MIDDLE_TIP;
 export const INDEX_FINGERTIP = INDEX_TIP;
 
+// Returns 1–4 for the canonical "count" poses (fingers extended starting
+// from the index), else 0. Thumb must be down so we don't collide with
+// thumbs_up. Poses must be bottom-up (no gaps) so a relaxed hand with
+// random fingers partly up doesn't trigger.
+export function sizeSelector(sum: HandSummary): number {
+  const f = sum.fingers;
+  if (f.thumb) return 0;
+  if (f.index && !f.middle && !f.ring && !f.pinky) return 1;
+  if (f.index && f.middle && !f.ring && !f.pinky) return 2;
+  if (f.index && f.middle && f.ring && !f.pinky) return 3;
+  if (f.index && f.middle && f.ring && f.pinky) return 4;
+  return 0;
+}
+
+// Hold-to-fire latch for an integer count (0 = no pose). Requires the
+// same non-zero count for `holdFrames` frames, then fires once; won't
+// re-fire until the count changes or drops to 0.
+export class CountLatch {
+  private lastCount = 0;
+  private frames = 0;
+  private fired = 0;
+
+  constructor(private readonly holdFrames: number) {}
+
+  // Returns the count that just fired, or 0 if nothing fired this tick.
+  tick(count: number): number {
+    if (count === 0) {
+      this.lastCount = 0;
+      this.frames = 0;
+      this.fired = 0;
+      return 0;
+    }
+    if (count !== this.lastCount) {
+      this.lastCount = count;
+      this.frames = 1;
+      this.fired = 0;
+      return 0;
+    }
+    this.frames++;
+    if (this.frames >= this.holdFrames && this.fired !== count) {
+      this.fired = count;
+      return count;
+    }
+    return 0;
+  }
+}
+
 // Hold-to-fire latch. Requires a pose to be held for `holdFrames` frames
 // before firing once; won't re-fire until the pose is released.
 export class GestureLatch {

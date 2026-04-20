@@ -62,7 +62,8 @@ export default function App() {
   const penDownRef = useRef(false);
   const eraseDownRef = useRef(false);
   const smoothedRef = useRef<{ x: number; y: number } | null>(null);
-  const palettePinchedRef = useRef(false);
+  const paletteIndexPinchedRef = useRef(false);
+  const paletteMiddlePinchedRef = useRef(false);
 
   const [color, setColor] = useState<string>(PALETTE[0].value);
   const [size, setSize] = useState<StrokeSize>(STROKE_SIZES[1]);
@@ -248,11 +249,23 @@ export default function App() {
       if (hands.length === 1) {
         drawIdx = 0;
       } else if (hands.length >= 2) {
-        // Larger x = further right on camera = further left on mirrored screen.
-        // We actually want the hand on the right side of the mirrored view,
-        // which corresponds to the *smaller* raw x.
-        drawIdx = hands[0][INDEX_FINGERTIP].x < hands[1][INDEX_FINGERTIP].x ? 0 : 1;
-        paletteIdx = drawIdx === 0 ? 1 : 0;
+        // Guard against MediaPipe occasionally reporting two detections
+        // for the same hand. Real two-hand use has distinct handedness
+        // labels AND wrists separated by at least ~one hand's width.
+        const hA = result.handedness?.[0]?.[0]?.categoryName;
+        const hB = result.handedness?.[1]?.[0]?.categoryName;
+        const wA = hands[0][0];
+        const wB = hands[1][0];
+        const wristGap = Math.hypot(wA.x - wB.x, wA.y - wB.y);
+        const twoHands = hA !== hB && wristGap > 0.2;
+
+        if (twoHands) {
+          // Smaller raw x = right side of mirrored view = drawing hand.
+          drawIdx = hands[0][INDEX_FINGERTIP].x < hands[1][INDEX_FINGERTIP].x ? 0 : 1;
+          paletteIdx = drawIdx === 0 ? 1 : 0;
+        } else {
+          drawIdx = 0;
+        }
       }
 
       // Render skeletons — drawing hand highlighted, palette hand muted.
@@ -418,7 +431,8 @@ export default function App() {
 
       // --- Palette hand ---
       if (paletteIdx === -1) {
-        palettePinchedRef.current = false;
+        paletteIndexPinchedRef.current = false;
+        paletteMiddlePinchedRef.current = false;
         setPaletteCursor(null);
       } else {
         const paletteHand = hands[paletteIdx];
@@ -426,28 +440,33 @@ export default function App() {
         if (sum) {
           const tipLm = paletteHand[INDEX_FINGERTIP];
 
-          // Vertical position picks stroke size live — higher = bigger.
-          const normalizedY = Math.max(0, Math.min(1, tipLm.y));
-          const sizeIdx = Math.min(
-            STROKE_SIZES.length - 1,
-            Math.floor((1 - normalizedY) * STROKE_SIZES.length),
-          );
-          const nextSize = STROKE_SIZES[sizeIdx];
-          if (nextSize !== sizeRef.current) {
+          // Two explicit pinch gestures, each with a dominance check so
+          // an ambiguous pinch doesn't fire both. Fresh-pinch latching
+          // keeps a held pinch from sprinting through the list.
+          const indexClose = sum.pinchIndex < PINCH_DOWN;
+          const middleClose = sum.pinchMiddle < PINCH_DOWN;
+          const indexWins = sum.pinchIndex < sum.pinchMiddle - PINCH_DOMINANCE;
+          const middleWins = sum.pinchMiddle < sum.pinchIndex - PINCH_DOMINANCE;
+
+          const indexPinched = indexClose && indexWins;
+          const middlePinched = middleClose && middleWins;
+
+          if (indexPinched && !paletteIndexPinchedRef.current) {
+            // Cycle ink color.
+            const idx = PALETTE.findIndex((c) => c.value === colorRef.current);
+            const nextColor = PALETTE[(idx + 1) % PALETTE.length];
+            colorRef.current = nextColor.value;
+            setColor(nextColor.value);
+          }
+          if (middlePinched && !paletteMiddlePinchedRef.current) {
+            // Cycle stroke size.
+            const idx = STROKE_SIZES.indexOf(sizeRef.current as StrokeSize);
+            const nextSize = STROKE_SIZES[(idx + 1) % STROKE_SIZES.length];
             sizeRef.current = nextSize;
             setSize(nextSize);
           }
-
-          // Fresh pinch (thumb + index) cycles color — debounced so
-          // holding a pinch doesn't sprint through the palette.
-          const pinchedNow = sum.pinchIndex < PINCH_DOWN;
-          if (pinchedNow && !palettePinchedRef.current) {
-            const idx = PALETTE.findIndex((c) => c.value === colorRef.current);
-            const next = PALETTE[(idx + 1) % PALETTE.length];
-            colorRef.current = next.value;
-            setColor(next.value);
-          }
-          palettePinchedRef.current = pinchedNow;
+          paletteIndexPinchedRef.current = indexPinched;
+          paletteMiddlePinchedRef.current = middlePinched;
 
           const stage = stageRef.current;
           if (stage) {
@@ -488,8 +507,9 @@ export default function App() {
       <header className="app-header">
         <h1>Air Writer</h1>
         <p className="subtitle">
-          Pinch thumb + index to draw. Pinch thumb + middle to erase. Hold a fist to undo,
-          a thumbs-up to save. Use a second hand as a palette: height picks size, pinch cycles color.
+          Pinch thumb + index to draw, thumb + middle to erase. Hold a fist to undo, thumbs-up
+          to save. Show a second hand as a palette — pinch thumb + index cycles ink color,
+          thumb + middle cycles stroke size.
         </p>
       </header>
 
