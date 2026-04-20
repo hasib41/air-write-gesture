@@ -124,6 +124,12 @@ export default function App() {
     onFrame: handleFrame,
   });
 
+  const statusTone: 'ok' | 'loading' | 'error' = status.startsWith('error')
+    ? 'error'
+    : status === 'running'
+      ? 'ok'
+      : 'loading';
+
   const handleClear = () => {
     const c = inkCanvasRef.current;
     if (!c) return;
@@ -153,7 +159,10 @@ export default function App() {
         <video ref={videoRef} playsInline muted className="video-feed" />
         <canvas ref={inkCanvasRef} className="ink-canvas" />
         <canvas ref={skeletonCanvasRef} className="overlay-canvas" />
-        <div className="status-pill">{status}</div>
+        <div className={`status-pill status-pill--${statusTone}`} role="status" aria-live="polite">
+          <span className="status-dot" aria-hidden />
+          <span>{status}</span>
+        </div>
       </div>
 
       <FingerCursor
